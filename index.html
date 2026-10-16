@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voz a MIDI — corrección de escala</title>
+<style>
+/* ============================================================
+   UI — tema oscuro
+   ============================================================ */
+:root {
+  --bg: #0e1014;
+  --panel: #161a21;
+  --panel2: #1c212b;
+  --border: #2a3140;
+  --text: #e8ecf4;
+  --muted: #8b94a8;
+  --accent: #4fd6c9;
+  --accent2: #8b9cff;
+  --orig: #6b7280;
+  --danger: #e5484d;
+  --ok: #3dd68c;
+  --warn-bg: #3a2a12;
+  --warn-br: #8a6a20;
+  --warn-tx: #f0c060;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header {
+  padding: 14px 18px 8px;
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+header h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .2px; }
+header .sub { color: var(--muted); font-size: 12px; }
+main { padding: 8px 18px 40px; max-width: 1100px; margin: 0 auto; }
+.warn {
+  background: var(--warn-bg); border: 1px solid var(--warn-br); color: var(--warn-tx);
+  border-radius: 8px; padding: 8px 12px; margin: 6px 0 14px; font-size: 13px;
+}
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px;
+}
+.card h2 {
+  margin: 0 0 10px; font-size: 12px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted);
+}
+label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+label:first-child { margin-top: 0; }
+select, input[type="number"] {
+  width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font: inherit;
+}
+select:focus, input[type="number"]:focus { outline: 1px solid var(--accent); }
+.row { display: flex; gap: 10px; align-items: end; }
+.row > * { flex: 1; }
+.chk { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--text); }
+.chk input { accent-color: var(--accent); }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.val { color: var(--text); font-variant-numeric: tabular-nums; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+button {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: #143d38; border-color: #1f6f64; color: var(--accent); }
+button.rec { background: #3d1418; border-color: #7a2430; color: #ff8b95; }
+button.rec.on { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.play.on { border-color: var(--accent2); color: var(--accent2); }
+.meter { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.mcell { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.mcell .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.mcell .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.mcell .v.small { font-size: 14px; font-weight: 500; }
+#noteOrig { color: var(--orig); }
+#noteCorr { color: var(--accent); }
+.status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1.4em; }
+.status .on { color: var(--ok); font-weight: 600; }
+.status .rec { color: #ff8b95; font-weight: 600; }
+canvas#roll {
+  width: 100%; height: 280px; display: block; background: #0b0d11;
+  border: 1px solid var(--border); border-radius: 8px; margin-top: 4px;
+}
+.legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.hint { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.hint code { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Voz a MIDI</h1>
+  <span class="sub">canta → detecta → corrige a escala → suena → exporta .mid</span>
+</header>
+<main>
+  <div class="warn">⚠ Usa <b>auriculares</b>: si el micrófono capta el metrónomo o el sintetizador, se corrompe la detección de tono.</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Tonalidad y escala</h2>
+      <label for="keySel">Tonalidad (raíz)</label>
+      <select id="keySel"></select>
+      <label for="scaleSel">Escala</label>
+      <select id="scaleSel"></select>
+      <label for="octSel">Octava de salida <span id="octLabel" class="val"></span></label>
+      <select id="octSel"></select>
+      <label for="bpmIn">BPM</label>
+      <input id="bpmIn" type="number" min="40" max="240" step="1" value="100">
+    </div>
+
+    <div class="card">
+      <h2>Metrónomo</h2>
+      <div class="chk"><input type="checkbox" id="metroOn" checked><label for="metroOn" style="margin:0">Activar (4/4, acento en 1, 1 compás de cuenta previa)</label></div>
+      <label for="metroVol">Volumen <span id="metroVolV" class="val"></span></label>
+      <input id="metroVol" type="range" min="0" max="1" step="0.01" value="0.5">
+      <div class="status" id="countIn"></div>
+    </div>
+
+    <div class="card">
+      <h2>Sintetizador</h2>
+      <label for="waveSel">Forma de onda</label>
+      <select id="waveSel">
+        <option value="sine" selected>Senoidal</option>
+        <option value="triangle">Triángulo</option>
+        <option value="square">Cuadrada</option>
+        <option value="sawtooth">Sierra</option>
+      </select>
+      <label for="synthVol">Volumen <span id="synthVolV" class="val"></span></label>
+      <input id="synthVol" type="range" min="0" max="1" step="0.01" value="0.35">
+      <div class="chk"><input type="checkbox" id="synthLive" checked><label for="synthLive" style="margin:0">Oír la nota corregida al cantar</label></div>
+    </div>
+
+    <div class="card">
+      <h2>Detección</h2>
+      <label for="clarIn">Umbral de claridad (YIN) <span id="clarV" class="val"></span></label>
+      <input id="clarIn" type="range" min="0.05" max="0.5" step="0.01" value="0.20">
+      <label for="gateIn">Puerta de ruido (RMS) <span id="gateV" class="val"></span></label>
+      <input id="gateIn" type="range" min="0.001" max="0.05" step="0.001" value="0.004">
+      <div id="lvlWrap" title="Nivel de entrada. La raya roja es la puerta: la voz debe pasarla." style="position:relative;height:8px;background:#0b0d11;border:1px solid #2a3140;border-radius:4px;margin:2px 0 10px;overflow:hidden"><div id="lvlBar" style="height:100%;width:0;background:#3fb950"></div><div id="lvlGate" style="position:absolute;top:0;bottom:0;width:2px;background:#ff6b6b;left:0"></div></div>
+      <label for="minDurIn">Duración mínima de nota (ms) <span id="minDurV" class="val"></span></label>
+      <input id="minDurIn" type="range" min="40" max="300" step="10" value="60">
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>Transporte</h2>
+    <div class="btns">
+      <button id="btnRec" class="rec">● Grabar</button>
+      <button id="btnStop" disabled>■ Detener</button>
+      <button id="btnPlay" class="play" disabled>▶ Reproducir</button>
+      <button id="btnMidi" disabled>⬇ Exportar MIDI</button>
+      <button id="btnClear" disabled>✕ Borrar toma</button>
+    </div>
+    <div class="chk"><input type="checkbox" id="rawExport"><label for="rawExport" style="margin:0">Exportar versión <b>sin corregir</b> (en lugar de la corregida)</label></div>
+    <div class="status" id="status">Listo. Pulsa Grabar y canta.</div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>Medidor en vivo</h2>
+    <div class="meter">
+      <div class="mcell"><div class="k">Nota detectada</div><div class="v" id="noteOrig">—</div><div class="k" id="hzOrig"></div></div>
+      <div class="mcell"><div class="k">Desviación</div><div class="v" id="centsV">—</div><div class="k">cents del cromático</div></div>
+      <div class="mcell"><div class="k">Nota corregida</div><div class="v" id="noteCorr">—</div><div class="k" id="keyScaleV"></div></div>
+      <div class="mcell"><div class="k">Nº notas / tiempo</div><div class="v small" id="recStats">0 notas · 0.0 s</div><div class="k" id="engineV"></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>Piano roll</h2>
+    <canvas id="roll" width="1040" height="280"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--orig)"></i>Original</span>
+      <span><i style="background:var(--accent)"></i>Corregida</span>
+      <span><i style="background:#3a4155"></i>Compás / tiempo</span>
+      <span><i style="background:#3fb950"></i>Franja: voz detectada</span>
+      <span><i style="background:#ff6b6b"></i>muy bajo (puerta)</span>
+      <span><i style="background:#f0a050"></i>sin tono claro</span>
+    </div>
+  </div>
+
+  <div class="hint">
+    <b>Cómo abrir la app</b> (el micrófono requiere contexto seguro):<br>
+    1) Guarda este archivo como <code>index.html</code>.<br>
+    2) En la carpeta ejecuta: <code>python -m http.server 8000</code> (o <code>py -m http.server 8000</code>).<br>
+    3) Abre <code>http://localhost:8000</code> en Chrome/Edge y permite el micrófono.<br>
+    El MIDI exportado es SMF formato 0, 480 PPQ, con tempo y compás 4/4 (arrastrable al piano roll de FL Studio).
+  </div>
+</main>
+
+<script>
+"use strict";
+/* ============================================================================
+ * Voz a MIDI — una sola página, sin dependencias externas.
+ *
+ * Reutiliza (código adaptado, licencias permisivas):
+ *  - Detector de tono YIN (de Cheveigné & Kawahara 2002). Implementación
+ *    propia minimalista siguiendo aubio/pitchy (MIT). Ver yinDetect().
+ *  - Técnica de scheduler con lookahead "A Tale of Two Clocks" (Chris Wilson,
+ *    2011) para el metrónomo — reloj de AudioContext, no setInterval suelto.
+ *  - Escritor de Standard MIDI File "a mano" según la especificación SMF 1.0
+ *    (formato documentado; sin librería).
+ *  - Osciladores + envolvente ADSR simple con Web Audio (patrón estándar).
+ * Piezas propias: escala/octava, segmentación de notas, UI, piano roll.
+ * ========================================================================== */
+
+/* ============================================================================
+ * 1. CONFIGURACIÓN Y ESTADO
+ * ========================================================================== */
+const NOTE_NAMES_ES = ["Do","Do#","Re","Re#","Mi","Fa","Fa#","Sol","Sol#","La","La#","Si"];
+const NOTE_NAMES_EN = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+const SCALES = {
+  "mayor":        { label: "Mayor",            steps: [0,2,4,5,7,9,11] },
+  "menor":        { label: "Menor natural",    steps: [0,2,3,5,7,8,10] },
+  "menor_arm":    { label: "Menor armónica",   steps: [0,2,3,5,7,8,11] },
+  "penta_may":    { label: "Pentatónica mayor",steps: [0,2,4,7,9] },
+  "penta_min":    { label: "Pentatónica menor",steps: [0,3,5,7,10] },
+};
+
+const settings = {
+  key: 0,            // 0=C .. 11=B
+  scale: "mayor",
+  octave: 0,         // -3..+3
+  bpm: 100,
+  metroOn: true,
+  metroVol: 0.5,
+  wave: "sine",
+  synthVol: 0.35,
+  synthLive: true,
+  clarity: 0.20,     // umbral YIN
+  gate: 0.004,       // RMS mínimo
+  minDurMs: 60,
+};
+
+const state = {
+  ctx: null,
+  stream: null,
+  micSource: null,
+  analyserNode: null,   // worklet o ScriptProcessor
+  workletOk: false,
+  zeroGain: null,
+  ring: null,           // Float32Array circular
+  ringPos: 0,
+  ringFilled: 0,
+  totalSamples: 0,
+  hopSize: 512,
+  bufferSize: 2048,
+  detecting: false,
+  recording: false,
+  counting: false,      // cuenta previa del metrónomo (aún no graba)
+  recStartTime: 0,      // AudioContext time del inicio de captura
+  playing: false,
+  playStartTime: 0,
+  playEnd: 0,
+  notes: [],            // {t,dur,midiOrig,midiCorr,vel,origSum,origN}
+  playingSources: [],
+  lastFrame: null,
+  gateOpen: false,      // histéresis de la puerta de ruido
+  frameLog: [],         // [tRel, código] por frame: 0 voz detectada, 1 muy bajo, 2 sin tono claro
+  medianBuf: [],
+};
+
+/* ============================================================================
+ * 2. UTILIDADES DE NOTA / ESCALA
+ * ========================================================================== */
+function mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function ftom(f) { return 69 + 12 * Math.log2(f / 440); }
+function midiName(m) {
+  const pc = ((Math.round(m) % 12) + 12) % 12;
+  const oct = Math.floor(Math.round(m) / 12) - 1;
+  return NOTE_NAMES_ES[pc] + oct;               // ej. La3, Do4
+}
+function midiNameEn(m) {
+  const pc = ((Math.round(m) % 12) + 12) % 12;
+  return NOTE_NAMES_EN[pc];
+}
+function scalePitchClasses(key, scaleId) {
+  return SCALES[scaleId].steps.map(s => (key + s) % 12);
+}
+/** Redondea midiFloat a la nota de la escala más cercana (entera). */
+function snapToScale(midiFloat, key, scaleId) {
+  const pcs = scalePitchClasses(key, scaleId);
+  const rounded = Math.round(midiFloat);
+  let best = rounded, bestDist = Infinity;
+  for (let d = -6; d <= 6; d++) {
+    const m = rounded + d;
+    const pc = ((m % 12) + 12) % 12;
+    if (pcs.indexOf(pc) >= 0) {
+      const dist = Math.abs(m - midiFloat);
+      if (dist < bestDist - 1e-9) { bestDist = dist; best = m; }
+    }
+  }
+  return best;
+}
+/** Filtro de mediana sobre el midi flotante detectado (evita notas fantasma). */
+function pushMedian(v) {
+  state.medianBuf.push(v);
+  if (state.medianBuf.length > 5) state.medianBuf.shift();
+  const s = state.medianBuf.slice().sort((a,b) => a-b);
+  return s[s.length >> 1];
+}
+
+/* ============================================================================
+ * 3. DETECCIÓN DE TONO — YIN
+ *    Adaptado de aubio / pitchy (MIT). Algoritmo: de Cheveigné & Kawahara 2002.
+ *    Función pura: se reutiliza en AudioWorklet y en el fallback ScriptProcessor.
+ * ========================================================================== */
+function yinDetect(buf, sampleRate, threshold) {
+  const size = buf.length;
+  const half = size >> 1;
+  let sumSq = 0;
+  for (let i = 0; i < size; i++) sumSq += buf[i] * buf[i];
+  const rms = Math.sqrt(sumSq / size);
+
+  // Solo busca periodos de voz (>= 70 Hz) y se detiene en el primer mínimo válido:
+  // ~4 veces menos cálculo que la versión completa, para no saturar el hilo de audio.
+  const tauMax = Math.min(half, Math.floor(sampleRate / 70));
+  const yinBuf = new Float32Array(tauMax + 1);
+  yinBuf[0] = 1;
+  let running = 0;
+  // diferencia (1) + normalización acumulada CMND (2) para un tau
+  const step = (tau) => {
+    let sum = 0;
+    for (let i = 0; i < half; i++) {
+      const d = buf[i] - buf[i + tau];
+      sum += d * d;
+    }
+    running += sum;
+    yinBuf[tau] = running > 0 ? sum * tau / running : 1;
+  };
+
+  // (3) umbral absoluto → primer mínimo local por debajo del umbral
+  let tauEst = -1;
+  for (let tau = 1; tau < tauMax; tau++) {
+    step(tau);
+    if (tau >= 2 && yinBuf[tau] < threshold) {
+      while (tau + 1 < tauMax) {
+        step(tau + 1);
+        if (yinBuf[tau + 1] < yinBuf[tau]) tau++; else break;
+      }
+      tauEst = tau;
+      break;
+    }
+  }
+  if (tauEst <= 0) return { freq: 0, clarity: 0, rms };
+
+  // (4) interpolación parabólica
+  let betterTau = tauEst;
+  if (tauEst > 0 && tauEst < tauMax - 1) {
+    const s0 = yinBuf[tauEst - 1], s1 = yinBuf[tauEst], s2 = yinBuf[tauEst + 1];
+    const denom = s0 - 2 * s1 + s2;
+    if (denom !== 0) betterTau = tauEst + 0.5 * (s0 - s2) / denom;
+  }
+  const freq = sampleRate / betterTau;
+  const clarity = 1 - yinBuf[tauEst];
+  return { freq, clarity, rms };
+}
+
+/* Código del AudioWorklet (se inyecta como string; yinDetect se copia vía toString). */
+const WORKLET_CODE = `
+${yinDetect.toString()}
+class PitchProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.bufferSize = 2048;
+    this.hopSize = 512;
+    this.buf = new Float32Array(this.bufferSize);
+    this.writePos = 0;
+    this.total = 0;
+    this.sinceHop = 0;
+    this.threshold = 0.20;
+    this.port.onmessage = (e) => {
+      if (e.data && e.data.threshold != null) this.threshold = e.data.threshold;
+    };
+  }
+  process(inputs) {
+    const input = inputs[0];
+    if (!input || input.length === 0 || !input[0]) return true;
+    const ch = input[0];
+    const n = ch.length;
+    for (let i = 0; i < n; i++) {
+      this.buf[this.writePos++] = ch[i];
+      if (this.writePos >= this.bufferSize) this.writePos = 0;
+    }
+    this.total += n;
+    this.sinceHop += n;
+    if (this.total >= this.bufferSize && this.sinceHop >= this.hopSize) {
+      this.sinceHop = 0;
+      const ordered = new Float32Array(this.bufferSize);
+      const start = this.writePos; // sample más antiguo
+      for (let i = 0; i < this.bufferSize; i++) ordered[i] = this.buf[(start + i) % this.bufferSize];
+      const r = yinDetect(ordered, sampleRate, this.threshold);
+      // tiempo del centro de la ventana (compensa latencia del buffer)
+      const t = (this.total - this.bufferSize * 0.5) / sampleRate;
+      this.port.postMessage({ freq: r.freq, clarity: r.clarity, rms: r.rms, t: t });
+    }
+    return true;
+  }
+}
+registerProcessor('pitch-processor', PitchProcessor);
+`;
+
+/* ============================================================================
+ * 4. MOTOR DE AUDIO — contexto, micrófono, detector
+ * ========================================================================== */
+async function ensureAudio() {
+  if (!state.ctx) {
+    state.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+    state.zeroGain = state.ctx.createGain();
+    state.zeroGain.gain.value = 0;
+    state.zeroGain.connect(state.ctx.destination);
+  }
+  if (state.ctx.state === "suspended") await state.ctx.resume();
+  return state.ctx;
+}
+
+async function ensureMic() {
+  if (state.micSource) return;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: 1,
+    },
+  });
+  state.stream = stream;
+  const ctx = await ensureAudio();
+  state.micSource = ctx.createMediaStreamSource(stream);
+
+  // Analyser solo para el medidor RMS/Hz auxiliar (no imprescindible)
+  let started = false;
+  if (ctx.audioWorklet) {
+    try {
+      const url = URL.createObjectURL(new Blob([WORKLET_CODE], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const node = new AudioWorkletNode(ctx, "pitch-processor", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      node.port.onmessage = (e) => onDetectionFrame(e.data);
+      state.micSource.connect(node);
+      node.connect(state.zeroGain);
+      state.analyserNode = node;
+      state.workletOk = true;
+      started = true;
+    } catch (err) {
+      console.warn("AudioWorklet no disponible, uso ScriptProcessor:", err);
+    }
+  }
+  if (!started) {
+    // Fallback: ScriptProcessor (deprecado pero universal). bufferSize 512 = hop.
+    const sp = ctx.createScriptProcessor(512, 1, 1);
+    state.ring = new Float32Array(state.bufferSize);
+    state.ringPos = 0; state.ringFilled = 0; state.totalSamples = 0;
+    sp.onaudioprocess = (ev) => {
+      const input = ev.inputBuffer.getChannelData(0);
+      for (let i = 0; i < input.length; i++) {
+        state.ring[state.ringPos++] = input[i];
+        if (state.ringPos >= state.bufferSize) state.ringPos = 0;
+        if (state.ringFilled < state.bufferSize) state.ringFilled++;
+      }
+      state.totalSamples += input.length;
+      if (state.ringFilled >= state.bufferSize) {
+        const ordered = new Float32Array(state.bufferSize);
+        for (let i = 0; i < state.bufferSize; i++) ordered[i] = state.ring[(state.ringPos + i) % state.bufferSize];
+        const r = yinDetect(ordered, ctx.sampleRate, settings.clarity);
+        const t = (state.totalSamples - state.bufferSize * 0.5) / ctx.sampleRate;
+        onDetectionFrame({ freq: r.freq, clarity: r.clarity, rms: r.rms, t: t });
+      }
+    };
+    state.micSource.connect(sp);
+    sp.connect(state.zeroGain);
+    state.analyserNode = sp;
+    state.workletOk = false;
+  }
+  engineLabel();
+}
+
+function engineLabel() {
+  el("engineV").textContent = state.ctx
+    ? (state.workletOk ? "motor: AudioWorklet · YIN" : "motor: ScriptProcessor · YIN · " + Math.round(state.ctx.sampleRate) + " Hz")
+    : "";
+}
+
+/* Entrada de cada frame del detector → UI + segmentación + sinte en vivo */
+function levelPos(rms) { return Math.min(1, Math.sqrt(Math.max(0, rms) / 0.1)); }
+function updateGateMarker() { el("lvlGate").style.left = (levelPos(settings.gate) * 100) + "%"; }
+
+function onDetectionFrame(frame) {
+  state.lastFrame = frame;
+  // Puerta con histéresis: se abre con rms >= gate y no se cierra hasta bajar a gate/2,
+  // así el vibrato o las consonantes no cortan la nota.
+  let quiet = true;
+  if (frame) {
+    const open = state.gateOpen ? frame.rms >= settings.gate * 0.5 : frame.rms >= settings.gate;
+    state.gateOpen = open;
+    quiet = !open;
+    const b = el("lvlBar");
+    b.style.width = (levelPos(frame.rms) * 100) + "%";
+    b.style.background = open ? "#3fb950" : "#ff6b6b";
+  }
+  if (state.recording && frame) {
+    const tr = frame.t - state.recStartTime;
+    if (tr >= 0) {
+      const code = quiet ? 1 : (!(frame.freq > 0) || frame.clarity < settings.clarity ? 2 : 0);
+      state.frameLog.push([tr, code]);
+    }
+  }
+  if (!frame || quiet || !(frame.freq > 0) || frame.clarity < settings.clarity) {
+    updateMeter(null);
+    if (state.recording) segmenter.frame(null, frame ? frame.t : state.ctx.currentTime);
+    return;
+  }
+  const midiFloat = pushMedian(ftom(frame.freq));
+  const midiOrig = Math.round(midiFloat);
+  const midiCorr = snapToScale(midiFloat, settings.key, settings.scale) + settings.octave * 12;
+  const cents = Math.round((midiFloat - midiOrig) * 100);
+  const info = { ...frame, midiFloat, midiOrig, midiCorr, cents };
+  updateMeter(info);
+  if (state.recording) segmenter.frame(info, frame.t);
+}
+
+/* ============================================================================
+ * 5. SEGMENTACIÓN EN NOTAS (estabilidad + histéresis + silencio)
+ * ========================================================================== */
+const segmenter = {
+  active: null,          // nota en curso
+  candMidi: -1, candN: 0,
+  switchMidi: -1, switchN: 0,
+  silenceMs: 0,
+  HOP_MS: 0,             // se calcula al iniciar
+  ONSET_MS: 50,          // estabilidad para abrir nota (~60-80 ms)
+  SWITCH_MS: 45,         // histéresis al cambiar de nota
+  SILENCE_MS: 150,        // cierre por silencio
+
+  reset() {
+    this.active = null; this.candMidi = -1; this.candN = 0;
+    this.switchMidi = -1; this.switchN = 0; this.silenceMs = 0;
+  },
+
+  frame(info, tAudio) {
+    if (!state.recording) return;
+    const tRel = tAudio - state.recStartTime;
+    if (tRel < 0) return;
+    const hopMs = this.HOP_MS;
+
+    if (!info) { // silencio / ruido
+      this.candN = 0; this.switchN = 0;
+      this.silenceMs += hopMs;
+      if (this.active && this.silenceMs >= this.SILENCE_MS) this._end(tRel);
+      return;
+    }
+    this.silenceMs = 0;
+    const midi = info.midiCorr;
+
+    if (!this.active) {
+      if (midi === this.candMidi) this.candN++;
+      else { this.candMidi = midi; this.candN = 1; }
+      if (this.candN * hopMs >= this.ONSET_MS) {
+        this._start(info, Math.max(0, tRel - this.ONSET_MS / 1000));
+      }
+    } else if (midi !== this.active.midiCorr) {
+      // ¿cambio real o parpadeo? → histéresis
+      if (midi === this.switchMidi) this.switchN++;
+      else { this.switchMidi = midi; this.switchN = 1; }
+      if (this.switchN * hopMs >= this.SWITCH_MS) {
+        const newStart = Math.max(this.active.t + this.active.dur, tRel - this.ONSET_MS / 1000);
+        this._end(Math.max(this.active.t + 0.02, tRel - this.SWITCH_MS / 1000));
+        this.candMidi = midi; this.candN = this.switchN;
+        if (this.candN * hopMs >= this.ONSET_MS) this._start(info, newStart);
+      }
+    } else {
+      this.switchMidi = -1; this.switchN = 0;
+      this.candMidi = midi; this.candN = 0;
+      this.active.dur = Math.max(this.active.dur, tRel - this.active.t);
+      const v = rmsToVel(info.rms);
+      if (v > this.active.vel) this.active.vel = v;
+      this.active.origSum += info.midiFloat; this.active.origN++;
+      this.active.midiOrig = Math.round(this.active.origSum / this.active.origN);
+    }
+    updateStats(tRel);
+  },
+
+  _start(info, t) {
+    const n = {
+      t, dur: 0.01,
+      midiOrig: info.midiOrig,
+      midiCorr: info.midiCorr,
+      vel: rmsToVel(info.rms),
+      origSum: info.midiFloat, origN: 1,
+    };
+    state.notes.push(n);
+    this.active = n;
+    if (settings.synthLive) synth.noteOn(n.midiCorr, n.vel);
+    drawRoll();
+  },
+
+  _end(tRel) {
+    const n = this.active;
+    if (!n) return;
+    n.dur = tRel - n.t;
+    this.active = null;
+    if (settings.synthLive) synth.noteOff();
+    if (n.dur * 1000 < settings.minDurMs) {
+      // descarta nota fantasma demasiado corta
+      const i = state.notes.indexOf(n);
+      if (i >= 0) state.notes.splice(i, 1);
+    }
+    updateBtns();
+    drawRoll();
+  },
+};
+
+function rmsToVel(rms) {
+  // Volumen (RMS) → velocity 15..127 (raíz para respuesta más natural)
+  return Math.max(15, Math.min(127, Math.round(18 + Math.sqrt(Math.max(0, rms)) * 190)));
+}
+
+/* ============================================================================
+ * 6. SINTETIZADOR (voz en vivo + reproducción) — oscilador + ADSR simple
+ * ========================================================================== */
+const synth = {
+  osc: null, gain: null, active: false,
+
+  _ensure(ctx) {
+    if (!this.osc) {
+      this.osc = ctx.createOscillator();
+      this.osc.type = settings.wave;
+      this.gain = ctx.createGain();
+      this.gain.gain.value = 0;
+      this.osc.connect(this.gain);
+      this.gain.connect(ctx.destination);
+      this.osc.start();
+    }
+  },
+
+  /** Nota corregida en vivo: glide corto para evitar clics. */
+  noteOn(midi, vel) {
+    if (!state.ctx) return;
+    this._ensure(state.ctx);
+    this.osc.type = settings.wave;
+    const now = state.ctx.currentTime;
+    const f = mtof(midi);
+    const g = Math.max(0.0001, (vel / 127) * settings.synthVol);
+    if (!this.active) {
+      this.osc.frequency.cancelScheduledValues(now);
+      this.osc.frequency.setValueAtTime(f, now);
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setValueAtTime(Math.max(0.0001, this.gain.gain.value), now);
+      this.gain.gain.linearRampToValueAtTime(g, now + 0.006);           // ataque
+      this.active = true;
+    } else {
+      // portamento ~8 ms sin cortar la envolvente
+      const cur = this.osc.frequency.value;
+      this.osc.frequency.cancelScheduledValues(now);
+      this.osc.frequency.setValueAtTime(cur, now);
+      this.osc.frequency.linearRampToValueAtTime(f, now + 0.008);
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setTargetAtTime(g, now, 0.01);
+    }
+  },
+
+  noteOff() {
+    if (!this.gain || !this.active) return;
+    const now = state.ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setTargetAtTime(0, now, 0.025);                      // liberación
+    this.active = false;
+  },
+
+  /** Voz polifónica para reproducción programada. */
+  playNote(midi, vel, tStart, dur) {
+    const ctx = state.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = settings.wave;
+    o.frequency.setValueAtTime(mtof(midi), tStart);
+    const peak = Math.max(0.0001, (vel / 127) * settings.synthVol);
+    const tEnd = tStart + Math.max(0.02, dur);
+    g.gain.setValueAtTime(0.0001, tStart);
+    g.gain.linearRampToValueAtTime(peak, tStart + 0.006);               // A
+    g.gain.setTargetAtTime(peak * 0.7, tStart + 0.006, 0.05);           // D/S
+    g.gain.setValueAtTime(peak * 0.7, Math.max(tStart + 0.02, tEnd - 0.06));
+    g.gain.linearRampToValueAtTime(0.0001, tEnd);                       // R
+    o.connect(g); g.connect(ctx.destination);
+    o.start(tStart); o.stop(tEnd + 0.02);
+    state.playingSources.push(o);
+  },
+};
+
+/* ============================================================================
+ * 7. METRÓNOMO — lookahead con reloj de AudioContext
+ *    Técnica de Chris Wilson, "A Tale of Two Clocks" (2011).
+ * ========================================================================== */
+const metro = {
+  running: false,
+  nextTime: 0,
+  beat: 0,
+  timer: null,
+  onBeat: null,     // callback(beatIndex, time)
+
+  start(atTime) {
+    this.stop();
+    const ctx = state.ctx;
+    this.running = true;
+    this.nextTime = atTime != null ? atTime : ctx.currentTime + 0.08;
+    this.beat = 0;
+    this.timer = setInterval(() => this._sched(), 25);                 // solo despierta; el reloj es el de audio
+  },
+
+  stop() {
+    this.running = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.onBeat = null;
+  },
+
+  _sched() {
+    const ctx = state.ctx;
+    const spb = 60 / Math.max(40, settings.bpm);                       // segundos por pulso
+    while (this.nextTime < ctx.currentTime + 0.12) {
+      this._click(this.nextTime, this.beat === 0);
+      if (this.onBeat) this.onBeat(this.beat, this.nextTime);
+      this.nextTime += spb;
+      this.beat = (this.beat + 1) % 4;
+    }
+  },
+
+  _click(time, accent) {
+    const ctx = state.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = accent ? 1600 : 1000;
+    const v = Math.max(0.0001, settings.metroVol * (accent ? 0.9 : 0.55));
+    g.gain.setValueAtTime(v, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.055);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(time); o.stop(time + 0.06);
+  },
+};
+
+/* ============================================================================
+ * 8. GRABACIÓN / REPRODUCCIÓN
+ * ========================================================================== */
+async function startRecording() {
+  stopAll();
+  try {
+    await ensureMic();
+  } catch (err) {
+    setStatus("No se pudo acceder al micrófono: " + err.message);
+    return;
+  }
+  state.notes = [];
+  state.frameLog = [];
+  segmenter.reset();
+  segmenter.HOP_MS = 1000 * state.hopSize / state.ctx.sampleRate;
+  drawRoll();
+  updateBtns();
+  state.detecting = true;
+
+  if (settings.metroOn) {
+    setStatus('<span class="rec">Cuenta previa…</span>');
+    state.counting = true;
+    updateBtns();
+    let beats = 0;
+    metro.start();                                                    // start() limpia onBeat, así que se asigna después
+    metro.onBeat = (b, t) => {
+      beats++;
+      el("countIn").textContent = "Cuenta: " + beats + " / 4";
+      if (beats >= 4) {
+        metro.onBeat = null;
+        el("countIn").textContent = "";
+        state.counting = false;
+        beginCapture(t + 60 / Math.max(40, settings.bpm));            // arranque en el 1 del compás siguiente
+      }
+    };
+  } else {
+    beginCapture(state.ctx.currentTime + 0.05);
+  }
+}
+
+function beginCapture(t0) {
+  state.recStartTime = t0;
+  state.recording = true;
+  setStatus('<span class="rec">● Grabando…</span> canta ahora');
+  updateBtns();
+  drawRoll();
+}
+
+function stopRecording() {
+  if (state.recording && segmenter.active) {
+    segmenter._end(Math.max(segmenter.active.t + 0.02, state.ctx.currentTime - state.recStartTime));
+  }
+  state.recording = false;
+  state.detecting = false;
+  metro.stop();
+  synth.noteOff();
+  el("countIn").textContent = "";
+  updateBtns();
+  drawRoll();
+  const L = state.frameLog;
+  let diag = "";
+  if (L.length) {
+    const c = [0, 0, 0];
+    for (const f of L) c[f[1]]++;
+    const pct = (n) => Math.round(100 * n / L.length) + "%";
+    diag = "<br>Diagnóstico: voz detectada " + pct(c[0]) + " · muy bajo " + pct(c[1]) + " · sin tono claro " + pct(c[2]) + ". ";
+    if (c[1] > c[2] && c[1] > 0.15 * L.length) diag += "Baja la puerta de ruido o acerca el micro.";
+    else if (c[2] > 0.15 * L.length) diag += "Sube el umbral de claridad o canta con más voz y menos aire.";
+  }
+  setStatus("Toma lista: " + state.notes.length + " nota(s). Puedes reproducir o exportar." + diag);
+  updateStats(null);
+}
+
+async function play() {
+  if (!state.notes.length) return;
+  stopAll();
+  await ensureAudio();
+  state.playing = true;
+  updateBtns();
+
+  let t0 = state.ctx.currentTime + 0.1;
+  if (settings.metroOn) {
+    metro.start(t0);
+    t0 = metro.nextTime;                                              // alineado al primer click
+  }
+  // reproducir notas corregidas (+ octava)
+  let end = 0;
+  for (const n of state.notes) {
+    const midi = n.midiCorr;                                          // ya incluye octava al grabar
+    const ts = t0 + n.t;
+    synth.playNote(midi, n.vel, ts, n.dur);
+    end = Math.max(end, ts + n.dur);
+  }
+  state.playStartTime = t0;
+  state.playEnd = end;
+  setStatus("▶ Reproduciendo…");
+  animatePlayhead();
+  setTimeout(() => {
+    if (state.playing) stopPlayback();
+  }, (end - state.ctx.currentTime + 0.3) * 1000);
+}
+
+function stopPlayback() {
+  for (const o of state.playingSources) {
+    try { o.stop(); } catch (e) {}
+  }
+  state.playingSources = [];
+  state.playing = false;
+  metro.stop();
+  drawRoll();
+  updateBtns();
+  setStatus("Reproducción detenida.");
+}
+
+function stopAll() {
+  if (state.counting) {
+    state.counting = false;
+    state.detecting = false;
+    el("countIn").textContent = "";
+    setStatus("Cancelado.");
+    updateBtns();
+  }
+  if (state.playing) stopPlayback();
+  if (state.recording) stopRecording();
+  metro.stop();
+  synth.noteOff();
+}
+
+/* ============================================================================
+ * 9. MIDI — escritor SMF mínimo (formato 0, 480 PPQ) + lector de prueba
+ * ========================================================================== */
+function vlq(n) {
+  n = Math.max(0, Math.round(n));
+  const bytes = [n & 0x7f];
+  n >>= 7;
+  while (n > 0) { bytes.unshift((n & 0x7f) | 0x80); n >>= 7; }
+  return bytes;
+}
+
+function buildMidiFile(notes, bpm, opts) {
+  const PPQ = 480;
+  const useCorrected = opts.useCorrected;
+  const secToTick = (sec) => Math.round(sec * (bpm / 60) * PPQ);
+
+  const evs = [];
+  for (const n of notes) {
+    const base = useCorrected ? n.midiCorr : n.midiOrig;
+    const m = Math.max(0, Math.min(127, base));
+    const a = secToTick(n.t);
+    const b = Math.max(a + 1, secToTick(n.t + n.dur));
+    evs.push({ tick: b, on: false, m, v: 0 });
+    evs.push({ tick: a, on: true, m, v: Math.max(1, Math.min(127, n.vel)) });
+  }
+  // mismo tick: NoteOff antes que NoteOn
+  evs.sort((x, y) => x.tick - y.tick || (x.on === y.on ? 0 : x.on ? 1 : -1));
+
+  const track = [];
+  const push = (...bs) => track.push(...bs);
+  // meta: tempo
+  const tempo = Math.round(60000000 / bpm);
+  push(...vlq(0), 0xFF, 0x51, 0x03, (tempo >> 16) & 0xff, (tempo >> 8) & 0xff, tempo & 0xff);
+  // meta: compás 4/4
+  push(...vlq(0), 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08);
+  // meta: nombre de pista (ASCII)
+  const name = ("Voz MIDI " + opts.name).replace(/[^\x20-\x7E]/g, "");
+  const nb = [];
+  for (let i = 0; i < name.length; i++) nb.push(name.charCodeAt(i) & 0x7f);
+  push(...vlq(0), 0xFF, 0x03, nb.length, ...nb);
+
+  let last = 0;
+  for (const e of evs) {
+    push(...vlq(e.tick - last));
+    last = e.tick;
+    if (e.on) push(0x90 | 0, e.m, e.v);
+    else push(0x80 | 0, e.m, 0);
+  }
+  push(...vlq(0), 0xFF, 0x2F, 0x00);                                  // end of track
+
+  const u32 = (v) => [(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+  const header = [0x4D, 0x54, 0x68, 0x64, ...u32(6), 0x00, 0x00, 0x00, 0x01, (PPQ >> 8) & 0xff, PPQ & 0xff];
+  const chunk = [0x4D, 0x54, 0x72, 0x6B, ...u32(track.length), ...track];
+  return new Uint8Array([...header, ...chunk]);
+}
+
+function exportMidi() {
+  if (!state.notes.length) return;
+  const useCorrected = !el("rawExport").checked;
+  const keyName = NOTE_NAMES_EN[settings.key];
+  const scaleTag = settings.scale;
+  const bytes = buildMidiFile(state.notes, settings.bpm, {
+    useCorrected,
+    name: keyName + " " + SCALES[settings.scale].label,
+  });
+  const blob = new Blob([bytes], { type: "audio/midi" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = keyName + "-" + scaleTag + "-" + settings.bpm + "bpm" + (useCorrected ? "" : "-raw") + ".mid";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  setStatus("MIDI exportado: " + a.download + " (" + bytes.length + " bytes)");
+}
+
+/* ============================================================================
+ * 10. UI — elementos, piano roll, medidor
+ * ========================================================================== */
+function el(id) { return document.getElementById(id); }
+
+function fillSelects() {
+  const ks = el("keySel");
+  for (let i = 0; i < 12; i++) {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = NOTE_NAMES_ES[i] + " (" + NOTE_NAMES_EN[i] + ")";
+    ks.appendChild(o);
+  }
+  const ss = el("scaleSel");
+  for (const [id, sc] of Object.entries(SCALES)) {
+    const o = document.createElement("option");
+    o.value = id; o.textContent = sc.label;
+    ss.appendChild(o);
+  }
+  const os = el("octSel");
+  for (let v = -3; v <= 3; v++) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = (v > 0 ? "+" : "") + v + (v === 0 ? " (sin cambio)" : " octava(s)");
+    if (v === 0) o.selected = true;
+    os.appendChild(o);
+  }
+}
+
+function updateOctLabel() {
+  const ref = 69 + settings.octave * 12;                               // La3 base → nombre con octava
+  el("octLabel").textContent = "· La3 → " + midiName(ref);
+}
+
+function updateKeyScaleLabel() {
+  el("keyScaleV").textContent = NOTE_NAMES_ES[settings.key] + " " + SCALES[settings.scale].label;
+}
+
+function updateMeter(info) {
+  if (!info) {
+    // no fuerza repaint si ya está vacío
+    return;
+  }
+  el("noteOrig").textContent = midiName(info.midiOrig);
+  el("hzOrig").textContent = info.freq.toFixed(1) + " Hz";
+  el("centsV").textContent = (info.cents > 0 ? "+" : "") + info.cents;
+  el("noteCorr").textContent = midiName(info.midiCorr);
+}
+
+function updateStats(tRel) {
+  let dur = 0;
+  if (state.recording && state.ctx) dur = Math.max(0, (tRel != null ? tRel : state.ctx.currentTime - state.recStartTime));
+  else if (state.notes.length) dur = state.notes.reduce((a, n) => Math.max(a, n.t + n.dur), 0);
+  el("recStats").textContent = state.notes.length + " notas · " + dur.toFixed(1) + " s";
+}
+
+function updateBtns() {
+  el("btnRec").disabled = state.recording || state.counting;
+  el("btnRec").classList.toggle("on", state.recording);
+  el("btnStop").disabled = !state.recording && !state.playing && !state.counting;
+  el("btnPlay").disabled = state.recording || state.playing || !state.notes.length;
+  el("btnPlay").classList.toggle("on", state.playing);
+  el("btnMidi").disabled = !state.notes.length || state.recording;
+  el("btnClear").disabled = state.recording || state.playing || !state.notes.length;
+}
+
+function setStatus(html) { el("status").innerHTML = html; }
+
+/* ---- piano roll (canvas) ---- */
+const rollCanvas = el("roll");
+const rollCtx = rollCanvas.getContext("2d");
+
+function drawRoll() {
+  const W = rollCanvas.width, H = rollCanvas.height;
+  const g = rollCtx;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#0b0d11";
+  g.fillRect(0, 0, W, H);
+
+  const notes = state.notes;
+  if (!notes.length && !state.frameLog.length) {
+    g.fillStyle = "#3a4155";
+    g.font = "13px system-ui";
+    g.fillText("Sin notas todavía", 14, 24);
+    return;
+  }
+  let minM = 127, maxM = 0, maxT = 0.5;
+  for (const n of notes) {
+    for (const m of [n.midiOrig, n.midiCorr]) {
+      if (m < minM) minM = m;
+      if (m > maxM) maxM = m;
+    }
+    maxT = Math.max(maxT, n.t + n.dur);
+  }
+  if (minM > maxM) { minM = 57; maxM = 76; }                           // sin notas: rango por defecto
+  if (state.frameLog.length) maxT = Math.max(maxT, state.frameLog[state.frameLog.length - 1][0]);
+  minM = Math.max(0, minM - 3);
+  maxM = Math.min(127, maxM + 3);
+  const span = Math.max(1, maxM - minM + 1);
+  const padL = 36, padT = 8, padB = 26, padR = 8;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const rowH = ih / span;
+  const x = (t) => padL + (t / maxT) * iw;
+  const y = (m) => padT + (maxM - m) * rowH;
+
+  // líneas de teclado / semitonos
+  for (let m = minM; m <= maxM; m++) {
+    const pc = ((m % 12) + 12) % 12;
+    const black = [1, 3, 6, 8, 10].indexOf(pc) >= 0;
+    g.fillStyle = black ? "#12151c" : "#0f1218";
+    g.fillRect(padL, y(m), iw, rowH);
+    if (pc === 0) {
+      g.fillStyle = "#3a4155";
+      g.fillRect(padL, y(m), iw, 1);
+      g.fillStyle = "#5b6478";
+      g.font = "10px system-ui";
+      g.fillText(midiName(m), 4, y(m) + rowH - 2);
+    }
+  }
+  // rejilla de tiempo (cada 1 s y compases)
+  const spb = 60 / Math.max(40, settings.bpm);
+  const bar = spb * 4;
+  g.strokeStyle = "#232836";
+  g.lineWidth = 1;
+  for (let t = 0; t <= maxT + 1e-6; t += spb) {
+    const isBar = Math.abs((t / bar) - Math.round(t / bar)) < 1e-6;
+    g.strokeStyle = isBar ? "#3a4155" : "#1c2130";
+    g.beginPath();
+    g.moveTo(x(t), padT);
+    g.lineTo(x(t), H - padB);
+    g.stroke();
+  }
+
+  // notas: original (gris) arriba, corregida (color) debajo
+  for (const n of notes) {
+    const w = Math.max(2, x(n.t + n.dur) - x(n.t));
+    g.fillStyle = "#6b7280";
+    g.fillRect(x(n.t), y(n.midiOrig) + rowH * 0.1, w, rowH * 0.35);
+    g.fillStyle = "#4fd6c9";
+    g.fillRect(x(n.t), y(n.midiCorr) + rowH * 0.5, w, rowH * 0.4);
+  }
+
+  // franja de diagnóstico: qué hizo el detector en cada instante
+  const COL = ["#3fb950", "#ff6b6b", "#f0a050"];
+  const fw = Math.max(1, (state.hopSize / (state.ctx ? state.ctx.sampleRate : 48000)) / maxT * iw);
+  for (const f of state.frameLog) {
+    g.fillStyle = COL[f[1]];
+    g.fillRect(x(f[0]), H - padB + 6, fw + 0.5, 12);
+  }
+
+  // línea de reproducción
+  if (state.playing && state.ctx) {
+    const tp = state.ctx.currentTime - state.playStartTime;
+    if (tp >= 0) {
+      g.strokeStyle = "#ff8b95";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(x(tp), padT);
+      g.lineTo(x(tp), H - padB);
+      g.stroke();
+    }
+  }
+  // borde
+  g.strokeStyle = "#2a3140";
+  g.strokeRect(padL + 0.5, padT + 0.5, iw - 1, ih - 1);
+}
+
+function animatePlayhead() {
+  if (!state.playing) { drawRoll(); return; }
+  drawRoll();
+  requestAnimationFrame(animatePlayhead);
+}
+
+/* ============================================================================
+ * 11. BINDING DE CONTROLES
+ * ========================================================================== */
+function bindUI() {
+  fillSelects();
+  updateOctLabel();
+  updateKeyScaleLabel();
+
+  el("keySel").onchange = (e) => { settings.key = +e.target.value; updateKeyScaleLabel(); drawRoll(); };
+  el("scaleSel").onchange = (e) => { settings.scale = e.target.value; updateKeyScaleLabel(); drawRoll(); };
+  el("octSel").onchange = (e) => { settings.octave = +e.target.value; updateOctLabel(); };
+  el("bpmIn").onchange = (e) => {
+    let v = Math.round(+e.target.value || 100);
+    v = Math.max(40, Math.min(240, v));
+    e.target.value = v; settings.bpm = v; drawRoll();
+  };
+  el("metroOn").onchange = (e) => { settings.metroOn = e.target.checked; };
+  el("metroVol").oninput = (e) => {
+    settings.metroVol = +e.target.value;
+    el("metroVolV").textContent = Math.round(settings.metroVol * 100) + "%";
+  };
+  el("waveSel").onchange = (e) => {
+    settings.wave = e.target.value;
+    if (synth.osc) synth.osc.type = settings.wave;
+  };
+  el("synthVol").oninput = (e) => {
+    settings.synthVol = +e.target.value;
+    el("synthVolV").textContent = Math.round(settings.synthVol * 100) + "%";
+  };
+  el("synthLive").onchange = (e) => { settings.synthLive = e.target.checked; if (!settings.synthLive) synth.noteOff(); };
+  el("clarIn").oninput = (e) => {
+    settings.clarity = +e.target.value;
+    el("clarV").textContent = settings.clarity.toFixed(2);
+    if (state.analyserNode && state.analyserNode.port) {
+      state.analyserNode.port.postMessage({ threshold: settings.clarity });
+    }
+  };
+  el("gateIn").oninput = (e) => {
+    settings.gate = +e.target.value;
+    el("gateV").textContent = settings.gate.toFixed(3);
+    updateGateMarker();
+  };
+  el("minDurIn").oninput = (e) => {
+    settings.minDurMs = +e.target.value;
+    el("minDurV").textContent = settings.minDurMs + " ms";
+  };
+
+  // valores iniciales de etiquetas
+  el("metroVolV").textContent = Math.round(settings.metroVol * 100) + "%";
+  el("synthVolV").textContent = Math.round(settings.synthVol * 100) + "%";
+  el("clarV").textContent = settings.clarity.toFixed(2);
+  el("gateV").textContent = settings.gate.toFixed(3);
+  updateGateMarker();
+  el("minDurV").textContent = settings.minDurMs + " ms";
+
+  el("btnRec").onclick = () => startRecording();
+  el("btnStop").onclick = () => stopAll();
+  el("btnPlay").onclick = () => play();
+  el("btnMidi").onclick = () => exportMidi();
+  el("btnClear").onclick = () => {
+    state.notes = [];
+    state.frameLog = [];
+    segmenter.reset();
+    drawRoll(); updateBtns(); updateStats(null);
+    setStatus("Toma borrada.");
+  };
+
+  updateBtns();
+  drawRoll();
+}
+
+bindUI();
+</script>
+</body>
+</html>
